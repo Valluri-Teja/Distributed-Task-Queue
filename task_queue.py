@@ -6,7 +6,6 @@ from datetime import datetime
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 r = redis.Redis(host=REDIS_HOST, port=6379, decode_responses=True)
-
 def push_task(task_type: str, payload: dict, priority: int = 1, retries: int = 0):
     """Add a task to the queue"""
     task = {
