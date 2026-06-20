@@ -1,24 +1,39 @@
-name: Deploy to AWS EC2
+name: Deploy to EC2
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
-    - name: Deploy to EC2
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ubuntu
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          cd /home/ubuntu/distributed-task-queue
-          git pull origin main
-          docker-compose down
-          docker-compose up -d --build
-          echo "Deployment complete!"
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/distributed-task-queue
+            git pull origin main
+            pip3 install -r requirements.txt --break-system-packages
+
+            # Kill API
+            pkill -f "uvicorn api:app" || true
+
+            # Kill worker
+            pkill -f "worker.py" || true
+
+            sleep 2
+
+            # Start API
+            nohup python3 -m uvicorn api:app --host 0.0.0.0 --port 8000 > api.log 2>&1 &
+
+            # Start worker
+            nohup python3 worker.py > worker.log 2>&1 &
+
+            echo "Deployed successfully! API and worker both restarted."
