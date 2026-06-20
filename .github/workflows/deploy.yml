@@ -19,13 +19,15 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/distributed-task-queue
-            git pull origin main
+
+            # Force git to always use rebase and reset to remote
+            git fetch origin
+            git reset --hard origin/main
+
             pip3 install -r requirements.txt --break-system-packages
 
-            # Kill API (|| true means ignore errors if process not found)
-            pkill -f "uvicorn api:app" || true
-
-            # Kill worker (|| true means ignore errors if process not found)
+            # Kill API and worker (|| true ignores errors)
+            pkill -f "uvicorn" || true
             pkill -f "worker.py" || true
 
             sleep 2
