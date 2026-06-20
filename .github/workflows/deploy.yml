@@ -22,10 +22,10 @@ jobs:
             git pull origin main
             pip3 install -r requirements.txt --break-system-packages
 
-            # Kill API
+            # Kill API (|| true means ignore errors if process not found)
             pkill -f "uvicorn api:app" || true
 
-            # Kill worker
+            # Kill worker (|| true means ignore errors if process not found)
             pkill -f "worker.py" || true
 
             sleep 2
@@ -36,4 +36,4 @@ jobs:
             # Start worker
             nohup python3 worker.py > worker.log 2>&1 &
 
-            echo "Deployed successfully! API and worker both restarted."
+            echo "Deployed successfully!"
