@@ -19,23 +19,16 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
             cd ~/distributed-task-queue
-
-            # Force git to always use rebase and reset to remote
             git fetch origin
             git reset --hard origin/main
-
             pip3 install -r requirements.txt --break-system-packages
 
-            # Kill API and worker (|| true ignores errors)
-            pkill -f "uvicorn" || true
-            pkill -f "worker.py" || true
+            sudo pkill -f "uvicorn" || true
+            sudo pkill -f "worker.py" || true
 
             sleep 2
 
-            # Start API
             nohup python3 -m uvicorn api:app --host 0.0.0.0 --port 8000 > api.log 2>&1 &
-
-            # Start worker
             nohup python3 worker.py > worker.log 2>&1 &
 
             echo "Deployed successfully!"
