@@ -2,7 +2,7 @@ import time
 import multiprocessing
 import os
 import logging
-from task_queue import pop_task, push_task, push_to_dead_letter, update_task_status, complete_task
+from task_queue import pop_task, push_task, complete_task, fail_task
 from datetime import datetime
 
 # --- Structured logging ---
@@ -80,14 +80,14 @@ def handle_failure(task, error):
 
     logger.warning("Task failed | id=%s retries=%d error=%s", task_id, task["retries"], error)
 
-    update_task_status(task_id, "retrying", error=str(error))
+    pass  # status tracked via Redis sets
 
     if task["retries"] < MAX_RETRIES:
         logger.info("Requeuing | id=%s attempt=%d", task_id, task["retries"])
         push_task(task["type"], task["payload"], task["priority"], retries=task["retries"])
     else:
         logger.error("Max retries reached, moving to dead letter queue | id=%s", task_id)
-        push_to_dead_letter(task)
+        fail_task(task, str(error))
 
 
 def run_worker(worker_id):
