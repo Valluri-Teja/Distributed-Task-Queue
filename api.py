@@ -5,7 +5,7 @@ from typing import Literal, Optional
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from task_queue import push_task, get_task_status, get_task_result, r
+from task_queue import push_task, get_task_result, r
 import logging
 import json
 
@@ -67,7 +67,7 @@ def create_task(request: Request, body: TaskRequest):
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str):
     """Get status + result of a specific task"""
-    task = get_task_status(task_id)
+    task = get_task_result(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
