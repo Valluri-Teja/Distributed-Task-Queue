@@ -15,6 +15,7 @@ from task_queue import (
 import logging
 import json
 import asyncio
+from datetime import datetime, timezone
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,12 +28,6 @@ limiter = Limiter(key_func=get_remote_address)
 
 
 async def watchdog_loop():
-    """
-    Background watchdog — runs every 30 seconds.
-    Finds tasks stuck in processing_queue longer than TASK_TIMEOUT_SECONDS
-    and requeues them. This is what guarantees at-least-once delivery
-    even when workers crash mid-task.
-    """
     while True:
         try:
             recovered = recover_stalled_tasks()
@@ -43,15 +38,42 @@ async def watchdog_loop():
         await asyncio.sleep(30)
 
 
+async def stats_snapshot_loop():
+    """
+    Every 10 seconds, store a snapshot of queue stats in Redis.
+    Used by /stats/history to power the live throughput chart.
+    Keeps last 60 snapshots (10 minutes of history).
+    """
+    prev_processed = 0
+    while True:
+        try:
+            stats = get_queue_stats()
+            current_processed = stats["total_tasks_processed"]
+            throughput = max(0, current_processed - prev_processed)
+            prev_processed = current_processed
+            snapshot = {
+                "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                "throughput": throughput,
+                "queued": stats["high_priority_queue"] + stats["normal_queue"],
+                "processing": stats["processing"],
+                "dead": stats["dead_letter_queue"],
+            }
+            r.lpush("stats_history", json.dumps(snapshot))
+            r.ltrim("stats_history", 0, 59)  # keep last 60 snapshots
+        except Exception as e:
+            logger.error("Stats snapshot error: %s", e)
+        await asyncio.sleep(10)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start watchdog on startup
-    task = asyncio.create_task(watchdog_loop())
-    logger.info("Watchdog started")
+    watchdog = asyncio.create_task(watchdog_loop())
+    snapshotter = asyncio.create_task(stats_snapshot_loop())
+    logger.info("Watchdog and stats snapshotter started")
     yield
-    # Cancel watchdog on shutdown
-    task.cancel()
-    logger.info("Watchdog stopped")
+    watchdog.cancel()
+    snapshotter.cancel()
+    logger.info("Background tasks stopped")
 
 
 app = FastAPI(title="Task Queue API", lifespan=lifespan)
@@ -110,6 +132,18 @@ def get_stats():
     return get_queue_stats()
 
 
+@app.get("/stats/history")
+def get_stats_history():
+    """
+    Last 60 snapshots of queue stats (10 mins of history).
+    Used by the dashboard to render the live throughput chart.
+    """
+    raw = r.lrange("stats_history", 0, -1)
+    snapshots = [json.loads(s) for s in raw]
+    snapshots.reverse()  # oldest first for chart rendering
+    return {"history": snapshots}
+
+
 @app.get("/dead-letter")
 def get_dead_letter():
     """See all failed tasks"""
@@ -124,10 +158,7 @@ def clear_dead_letter_endpoint():
 
 @app.post("/dead-letter/replay")
 def replay_dead_letter_endpoint():
-    """
-    Requeue all dead letter tasks back to normal queue.
-    Use this after fixing a bug that caused mass failures.
-    """
+    """Requeue all dead letter tasks back to normal queue."""
     replayed = replay_dead_letter()
     logger.info("Replayed %d dead letter tasks", replayed)
     return {"message": f"Replayed {replayed} tasks back to queue"}
