@@ -1,15 +1,21 @@
-from fastapi import FastAPI, HTTPException, Request
+﻿from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 from typing import Literal, Optional
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from task_queue import push_task, get_task_result, r
+from contextlib import asynccontextmanager
+from task_queue import (
+    push_task, get_task_result, get_queue_stats,
+    get_dead_letter_tasks, clear_dead_letter, replay_dead_letter,
+    recover_stalled_tasks, r
+)
 import logging
 import json
+import asyncio
 
-# --- Structured logging (replaces all print statements) ---
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -17,10 +23,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- Rate limiter (max 100 requests/min per IP) ---
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI(title="Task Queue API")
+
+async def watchdog_loop():
+    """
+    Background watchdog — runs every 30 seconds.
+    Finds tasks stuck in processing_queue longer than TASK_TIMEOUT_SECONDS
+    and requeues them. This is what guarantees at-least-once delivery
+    even when workers crash mid-task.
+    """
+    while True:
+        try:
+            recovered = recover_stalled_tasks()
+            if recovered > 0:
+                logger.warning("Watchdog recovered %d stalled tasks", recovered)
+        except Exception as e:
+            logger.error("Watchdog error: %s", e)
+        await asyncio.sleep(30)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Start watchdog on startup
+    task = asyncio.create_task(watchdog_loop())
+    logger.info("Watchdog started")
+    yield
+    # Cancel watchdog on shutdown
+    task.cancel()
+    logger.info("Watchdog stopped")
+
+
+app = FastAPI(title="Task Queue API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
@@ -33,20 +67,17 @@ app.add_middleware(
 
 
 class TaskRequest(BaseModel):
-    # Only allow known task types — no random strings accepted
     task_type: Literal["send_email", "resize_image", "failing_task", "generate_report", "data_sync"]
     payload: Optional[dict] = {}
     priority: int = 1
 
-    # Prevent massive payloads crashing the system
     @field_validator("payload")
     @classmethod
     def payload_size_limit(cls, v):
-        if len(json.dumps(v)) > 10_000:  # 10KB max
+        if len(json.dumps(v)) > 10_000:
             raise ValueError("Payload too large. Maximum size is 10KB.")
         return v
 
-    # Priority must be 1 (normal) or 2 (high) only
     @field_validator("priority")
     @classmethod
     def priority_must_be_valid(cls, v):
@@ -67,41 +98,39 @@ def create_task(request: Request, body: TaskRequest):
 @app.get("/tasks/{task_id}")
 def get_task(task_id: str):
     """Get status + result of a specific task"""
-    task = get_task_result(task_id)
-    if not task:
+    result = get_task_result(task_id)
+    if not result:
         raise HTTPException(status_code=404, detail="Task not found")
-
-    # Also attach result if task is completed
-    if task.get("status") == "completed":
-        result = get_task_result(task_id)
-        if result:
-            task["result"] = result
-
-    return task
+    return {"task_id": task_id, "result": result}
 
 
 @app.get("/stats")
 def get_stats():
-    """See queue stats + metrics"""
-    durations = r.lrange("task_durations", 0, -1)
-    durations = [float(d) for d in durations]
-    avg_duration = round(sum(durations) / len(durations), 2) if durations else 0
-    total_processed = r.get("total_tasks_processed") or 0
-
-    return {
-        "high_priority_queue": r.llen("high_priority_queue"),
-        "normal_queue": r.llen("normal_queue"),
-        "dead_letter_queue": r.llen("dead_letter_queue"),
-        "total_tasks_processed": int(total_processed),
-        "avg_processing_time_seconds": avg_duration,
-    }
+    """Live queue stats"""
+    return get_queue_stats()
 
 
 @app.get("/dead-letter")
-def get_dead_letter_tasks():
+def get_dead_letter():
     """See all failed tasks"""
-    tasks = r.lrange("dead_letter_queue", 0, -1)
-    return {"failed_tasks": [json.loads(t) for t in tasks]}
+    return {"failed_tasks": get_dead_letter_tasks()}
+
+
+@app.delete("/dead-letter")
+def clear_dead_letter_endpoint():
+    """Clear dead letter queue"""
+    return clear_dead_letter()
+
+
+@app.post("/dead-letter/replay")
+def replay_dead_letter_endpoint():
+    """
+    Requeue all dead letter tasks back to normal queue.
+    Use this after fixing a bug that caused mass failures.
+    """
+    replayed = replay_dead_letter()
+    logger.info("Replayed %d dead letter tasks", replayed)
+    return {"message": f"Replayed {replayed} tasks back to queue"}
 
 
 @app.get("/")
