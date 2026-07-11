@@ -22,19 +22,5 @@ jobs:
             git fetch origin
             git reset --hard origin/main
             pip3 install -r requirements.txt --break-system-packages
-
-            # Kill only the specific processes, not SSH
-            kill $(cat api.pid) 2>/dev/null || true
-            kill $(cat worker.pid) 2>/dev/null || true
-
-            sleep 2
-
-            # Start API and save its PID
-            nohup python3 -m uvicorn api:app --host 0.0.0.0 --port 8000 > api.log 2>&1 &
-            echo $! > api.pid
-
-            # Start worker and save its PID
-            nohup python3 worker.py > worker.log 2>&1 &
-            echo $! > worker.pid
-
+            sudo systemctl restart task-queue-api task-queue-worker
             echo "Deployed successfully!"
