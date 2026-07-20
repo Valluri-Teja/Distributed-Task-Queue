@@ -28,10 +28,13 @@ def process_task(task: dict) -> dict:
     worker_name = multiprocessing.current_process().name
     task_type = task["type"]
     task_id = task["id"]
+
     logger.info("Processing | worker=%s type=%s id=%s retries=%d",
                 worker_name, task_type, task_id, task.get("retries", 0))
+
     if FAILURE_RATE > 0 and random.random() < FAILURE_RATE:
         raise Exception(f"Simulated failure (FAILURE_RATE={FAILURE_RATE})")
+
     if task_type == "send_email":
         logger.info("Sending email to: %s", task["payload"].get("to", "unknown"))
         time.sleep(1)
@@ -48,22 +51,26 @@ def process_task(task: dict) -> dict:
         time.sleep(0.5)
     else:
         logger.warning("Unknown task type: %s | id=%s", task_type, task_id)
+
     duration = (datetime.now() - start_time).total_seconds()
     logger.info("Completed | id=%s duration=%.2fs", task_id, duration)
-    return {"duration_seconds": round(duration, 2), "worker": worker_name}
+
+    return {"duration_seconds": round(duration, 2), "worker": worker_name, "status": "completed"}
 
 
 def handle_failure(task: dict, error: str):
     task["retries"] = task.get("retries", 0) + 1
     task_id = task["id"]
     logger.warning("Task failed | id=%s retries=%d error=%s", task_id, task["retries"], error)
+
     if task["retries"] < MAX_RETRIES:
         delay = get_retry_delay(attempt=task["retries"] - 1)
-        logger.info("Retrying with backoff | id=%s attempt=%d delay=%.2fs", task_id, task["retries"], delay)
+        logger.info("Retrying with backoff | id=%s attempt=%d delay=%.2fs",
+                    task_id, task["retries"], delay)
         time.sleep(delay)
         push_task(task["type"], task["payload"], task["priority"], retries=task["retries"])
     else:
-        logger.error("Max retries reached, moving to dead letter queue | id=%s", task_id)
+        logger.error("Max retries reached | id=%s", task_id)
         fail_task(task, error)
 
 
@@ -74,7 +81,13 @@ def run_worker(worker_id: int):
         if task:
             try:
                 result = process_task(task)
-                complete_task(task["id"], result=result)
+                # Pass task_type and worker for analytics tracking
+                complete_task(
+                    task["id"],
+                    task_type=task["type"],
+                    worker=multiprocessing.current_process().name,
+                    result=result
+                )
                 from task_queue import r
                 r.lpush("task_durations", result["duration_seconds"])
                 r.ltrim("task_durations", 0, 999)
@@ -89,10 +102,13 @@ def run_worker_pool(num_workers: int = 3):
     logger.info("Starting worker pool | workers=%d", num_workers)
     processes = []
     for i in range(num_workers):
-        p = multiprocessing.Process(target=run_worker, args=(i + 1,), name=f"Worker-{i + 1}")
+        p = multiprocessing.Process(
+            target=run_worker, args=(i + 1,), name=f"Worker-{i + 1}"
+        )
         p.start()
         processes.append(p)
         logger.info("Worker-%d launched | pid=%d", i + 1, p.pid)
+
     try:
         for p in processes:
             p.join()

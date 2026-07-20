@@ -1,6 +1,5 @@
 ﻿from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 from typing import Literal, Optional
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -8,7 +7,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from contextlib import asynccontextmanager
 from task_queue import (
-    push_task, get_task_result, get_queue_stats,
+    push_task, get_task_result, get_queue_stats, get_analytics,
     get_dead_letter_tasks, clear_dead_letter, replay_dead_letter,
     recover_stalled_tasks, r
 )
@@ -23,7 +22,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger(__name__)
-
 limiter = Limiter(key_func=get_remote_address)
 
 
@@ -39,11 +37,6 @@ async def watchdog_loop():
 
 
 async def stats_snapshot_loop():
-    """
-    Every 10 seconds, store a snapshot of queue stats in Redis.
-    Used by /stats/history to power the live throughput chart.
-    Keeps last 60 snapshots (10 minutes of history).
-    """
     prev_processed = 0
     while True:
         try:
@@ -59,7 +52,7 @@ async def stats_snapshot_loop():
                 "dead": stats["dead_letter_queue"],
             }
             r.lpush("stats_history", json.dumps(snapshot))
-            r.ltrim("stats_history", 0, 59)  # keep last 60 snapshots
+            r.ltrim("stats_history", 0, 59)
         except Exception as e:
             logger.error("Stats snapshot error: %s", e)
         await asyncio.sleep(10)
@@ -73,13 +66,11 @@ async def lifespan(app: FastAPI):
     yield
     watchdog.cancel()
     snapshotter.cancel()
-    logger.info("Background tasks stopped")
 
 
 app = FastAPI(title="Task Queue API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -134,14 +125,17 @@ def get_stats():
 
 @app.get("/stats/history")
 def get_stats_history():
-    """
-    Last 60 snapshots of queue stats (10 mins of history).
-    Used by the dashboard to render the live throughput chart.
-    """
+    """Last 60 snapshots for throughput chart"""
     raw = r.lrange("stats_history", 0, -1)
     snapshots = [json.loads(s) for s in raw]
-    snapshots.reverse()  # oldest first for chart rendering
+    snapshots.reverse()
     return {"history": snapshots}
+
+
+@app.get("/analytics")
+def get_analytics_endpoint():
+    """Task type breakdown, worker utilization, recent task feed"""
+    return get_analytics()
 
 
 @app.get("/dead-letter")
@@ -158,7 +152,7 @@ def clear_dead_letter_endpoint():
 
 @app.post("/dead-letter/replay")
 def replay_dead_letter_endpoint():
-    """Requeue all dead letter tasks back to normal queue."""
+    """Requeue all dead letter tasks"""
     replayed = replay_dead_letter()
     logger.info("Replayed %d dead letter tasks", replayed)
     return {"message": f"Replayed {replayed} tasks back to queue"}

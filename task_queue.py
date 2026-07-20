@@ -2,6 +2,7 @@
 import json
 import os
 import logging
+import uuid
 from datetime import datetime, timezone
 
 logging.basicConfig(
@@ -17,19 +18,14 @@ r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
 
 HIGH_PRIORITY_QUEUE = "high_priority_queue"
 NORMAL_QUEUE = "normal_queue"
-PROCESSING_QUEUE = "processing_queue"  # BRPOPLPUSH target — tasks here are in-flight
+PROCESSING_QUEUE = "processing_queue"
 DEAD_LETTER_QUEUE = "dead_letter_queue"
 COMPLETED_SET = "completed"
-TASK_TIMEOUT_SECONDS = 60  # tasks stuck longer than this are assumed crashed
+TASK_TIMEOUT_SECONDS = 60
 
 
 def push_task(task_type: str, task_data: dict, priority: int = 1, retries: int = 0):
-    """Push a task to the appropriate priority queue."""
-    task_id = task_data.get("id") if isinstance(task_data, dict) and "id" in task_data else None
-    if not task_id:
-        import uuid
-        task_id = str(uuid.uuid4())
-
+    task_id = str(uuid.uuid4())
     task = {
         "id": task_id,
         "type": task_type,
@@ -49,37 +45,17 @@ def push_task(task_type: str, task_data: dict, priority: int = 1, retries: int =
 
 
 def pop_task():
-    """
-    Pop a task using BRPOPLPUSH pattern.
-
-    BRPOPLPUSH atomically:
-    1. Pops from high_priority_queue (or normal_queue)
-    2. Pushes to processing_queue in the same atomic operation
-
-    This means if the worker crashes after popping but before completing,
-    the task is still in processing_queue and can be recovered by the watchdog.
-    This guarantees at-least-once delivery.
-    """
-    # Check high priority first
     result = r.brpoplpush(HIGH_PRIORITY_QUEUE, PROCESSING_QUEUE, timeout=0.5)
     if not result:
-        # Fall back to normal queue
         result = r.brpoplpush(NORMAL_QUEUE, PROCESSING_QUEUE, timeout=0.5)
     if result:
         task = json.loads(result)
-        # Store timestamp so watchdog knows when task was picked up
         r.hset("task_heartbeat", task["id"], datetime.now(timezone.utc).isoformat())
-        logger.info("Task popped | id=%s type=%s", task["id"], task.get("type"))
         return task
     return None
 
 
 def acknowledge_task(task_id: str):
-    """
-    Remove task from processing_queue after successful completion.
-    Called by worker after process_task() succeeds.
-    """
-    # Remove from processing queue (find and remove the task JSON)
     tasks = r.lrange(PROCESSING_QUEUE, 0, -1)
     for t in tasks:
         try:
@@ -91,79 +67,86 @@ def acknowledge_task(task_id: str):
     r.hdel("task_heartbeat", task_id)
 
 
-def complete_task(task_id: str, result: dict = None):
-    """Mark task as completed and store result."""
+def complete_task(task_id: str, task_type: str = None, worker: str = None, result: dict = None):
     acknowledge_task(task_id)
     r.sadd(COMPLETED_SET, task_id)
-    r.hset("task_results", task_id,
-           json.dumps(result or {"status": "completed"}))
-    r.expire("task_results", 86400)  # 24h TTL
+
+    # Store result
+    r.hset("task_results", task_id, json.dumps(result or {"status": "completed"}))
+    r.expire("task_results", 86400)
+
+    # Track task type counts
+    if task_type:
+        r.hincrby("task_type_counts", task_type, 1)
+
+    # Track worker utilization
+    if worker:
+        r.hincrby("worker_counts", worker, 1)
+
+    # Add to recent task feed (keep last 20)
+    feed_entry = json.dumps({
+        "id": task_id,
+        "type": task_type or "unknown",
+        "status": "completed",
+        "worker": worker or "unknown",
+        "duration": result.get("duration_seconds") if result else None,
+        "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+    })
+    r.lpush("recent_tasks", feed_entry)
+    r.ltrim("recent_tasks", 0, 19)
+
     logger.info("Task completed | id=%s", task_id)
 
 
 def fail_task(task: dict, error: str):
-    """Move task to dead letter queue after max retries."""
     acknowledge_task(task["id"])
     task["last_error"] = error
     task["status"] = "dead"
     r.lpush(DEAD_LETTER_QUEUE, json.dumps(task))
-    logger.error("Task dead | id=%s retries=%d error=%s",
-                 task["id"], task.get("retries", 0), error)
+
+    # Track in recent feed
+    feed_entry = json.dumps({
+        "id": task["id"],
+        "type": task.get("type", "unknown"),
+        "status": "failed",
+        "worker": "unknown",
+        "duration": None,
+        "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+    })
+    r.lpush("recent_tasks", feed_entry)
+    r.ltrim("recent_tasks", 0, 19)
+
+    logger.error("Task dead | id=%s error=%s", task["id"], error)
 
 
 def recover_stalled_tasks():
-    """
-    Watchdog function — scans processing_queue for tasks that have been
-    there longer than TASK_TIMEOUT_SECONDS (worker likely crashed).
-    Requeues them so they are not lost.
-
-    Interview answer: This is what makes the system fault-tolerant.
-    Without this, a crashed worker = lost task. With this, we guarantee
-    at-least-once delivery even under worker failure.
-    """
     now = datetime.now(timezone.utc)
     tasks = r.lrange(PROCESSING_QUEUE, 0, -1)
     recovered = 0
-
     for payload in tasks:
         try:
             task = json.loads(payload)
             task_id = task["id"]
             heartbeat = r.hget("task_heartbeat", task_id)
-
             if heartbeat:
                 picked_at = datetime.fromisoformat(heartbeat)
-                # Make picked_at timezone-aware if needed
                 if picked_at.tzinfo is None:
                     picked_at = picked_at.replace(tzinfo=timezone.utc)
                 age_seconds = (now - picked_at).total_seconds()
-
                 if age_seconds > TASK_TIMEOUT_SECONDS:
-                    logger.warning(
-                        "Recovering stalled task | id=%s age=%.0fs",
-                        task_id, age_seconds
-                    )
-                    # Remove from processing queue
+                    logger.warning("Recovering stalled task | id=%s age=%.0fs", task_id, age_seconds)
                     r.lrem(PROCESSING_QUEUE, 1, payload)
                     r.hdel("task_heartbeat", task_id)
-                    # Requeue it
                     task["retries"] = task.get("retries", 0) + 1
                     task["status"] = "pending"
                     r.lpush(NORMAL_QUEUE, json.dumps(task))
                     recovered += 1
         except Exception as e:
-            logger.error("Error in watchdog | error=%s", e)
-
-    if recovered > 0:
-        logger.info("Watchdog recovered %d stalled tasks", recovered)
+            logger.error("Watchdog error | error=%s", e)
     return recovered
 
 
 def replay_dead_letter():
-    """
-    Requeue all tasks from dead letter queue back to normal queue.
-    Useful for retrying after fixing a bug that caused mass failures.
-    """
     tasks = r.lrange(DEAD_LETTER_QUEUE, 0, -1)
     replayed = 0
     for payload in tasks:
@@ -175,20 +158,20 @@ def replay_dead_letter():
             r.lpush(NORMAL_QUEUE, json.dumps(task))
             replayed += 1
         except Exception as e:
-            logger.error("Error replaying task | error=%s", e)
+            logger.error("Replay error | error=%s", e)
     r.delete(DEAD_LETTER_QUEUE)
-    logger.info("Replayed %d tasks from dead letter queue", replayed)
     return replayed
 
 
 def get_task_result(task_id: str):
-    """Get stored result for a completed task."""
     result = r.hget("task_results", task_id)
     return json.loads(result) if result else None
 
 
 def get_queue_stats():
-    """Return live queue stats."""
+    durations = r.lrange("task_durations", 0, -1)
+    floats = [float(d) for d in durations] if durations else []
+    avg = round(sum(floats) / len(floats), 2) if floats else 0
     return {
         "high_priority_queue": r.llen(HIGH_PRIORITY_QUEUE),
         "normal_queue": r.llen(NORMAL_QUEUE),
@@ -196,24 +179,27 @@ def get_queue_stats():
         "completed": r.scard(COMPLETED_SET),
         "dead_letter_queue": r.llen(DEAD_LETTER_QUEUE),
         "total_tasks_processed": int(r.get("total_tasks_processed") or 0),
-        "avg_processing_time_seconds": _get_avg_duration(),
+        "avg_processing_time_seconds": avg,
     }
 
 
-def _get_avg_duration() -> float:
-    durations = r.lrange("task_durations", 0, -1)
-    if not durations:
-        return 0.0
-    floats = [float(d) for d in durations]
-    return round(sum(floats) / len(floats), 2)
+def get_analytics():
+    """Returns task type counts, worker utilization, and recent task feed."""
+    type_counts = r.hgetall("task_type_counts")
+    worker_counts = r.hgetall("worker_counts")
+    recent_raw = r.lrange("recent_tasks", 0, -1)
+    recent = [json.loads(t) for t in recent_raw]
+    return {
+        "task_type_counts": {k: int(v) for k, v in type_counts.items()},
+        "worker_counts": {k: int(v) for k, v in worker_counts.items()},
+        "recent_tasks": recent,
+    }
 
 
 def get_dead_letter_tasks():
-    """Return all tasks in dead letter queue."""
     return [json.loads(t) for t in r.lrange(DEAD_LETTER_QUEUE, 0, -1)]
 
 
 def clear_dead_letter():
-    """Clear dead letter queue."""
     r.delete(DEAD_LETTER_QUEUE)
     return {"message": "Dead letter queue cleared"}
