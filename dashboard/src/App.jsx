@@ -1,4 +1,4 @@
-ï»¿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, Cell, PieChart, Pie, Legend } from "recharts";
 
@@ -66,7 +66,7 @@ export default function App() {
       const res = await axios.post(`${API}/tasks`, { task_type: taskType, payload: { to: "demo@example.com", filename: "photo.jpg" }, priority: parseInt(priority) });
       const id = res.data.task_id?.id || res.data.task_id;
       setTrackId(id);
-      showToast(`Task queued â€” ID: ${id?.slice(0, 8)}â€¦`, "success");
+      showToast(`Task queued — ID: ${id?.slice(0, 8)}…`, "success");
       fetchAll();
     } catch (e) { showToast(e?.response?.data?.detail?.[0]?.msg || "Failed to submit task", "error"); }
     finally { setSubmitting(false); }
@@ -100,14 +100,14 @@ export default function App() {
           <span style={{ fontSize: "15px", fontWeight: 600 }}>Distributed Task Queue</span>
           <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "12px", background: `${C.green}22`, color: C.green, border: `1px solid ${C.green}44` }}>Live</span>
         </div>
-        <a href={`${API}/docs`} target="_blank" rel="noreferrer" style={{ fontSize: "12px", color: C.muted, textDecoration: "none" }}>API Docs â†’</a>
+        <a href={`${API}/docs`} target="_blank" rel="noreferrer" style={{ fontSize: "12px", color: C.muted, textDecoration: "none" }}>API Docs ?</a>
       </nav>
 
-      <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "32px 24px" }}>
+      <main style={{ padding: "24px 32px" }}>
         <h1 style={{ fontSize: "22px", fontWeight: 600, margin: "0 0 4px", letterSpacing: "-0.02em" }}>Queue Monitor</h1>
         <p style={{ fontSize: "13px", color: C.muted, margin: "0 0 28px" }}>
           <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: C.green, display: "inline-block", marginRight: "6px", animation: "pulse 2s infinite" }}/>
-          {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Connectingâ€¦"} Â· auto-refreshes every 5s
+          {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Connecting…"} · auto-refreshes every 5s
         </p>
 
         {toast && <div style={{ padding: "10px 14px", borderRadius: "6px", fontSize: "13px", marginBottom: "16px", background: toast.type === "success" ? `${C.green}11` : `${C.red}11`, border: `1px solid ${toast.type === "success" ? C.green+"44" : C.red+"44"}`, color: toast.type === "success" ? C.green : C.red }}>{toast.msg}</div>}
@@ -115,12 +115,12 @@ export default function App() {
         {/* Stat Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px", marginBottom: "24px" }}>
           {[
-            { label: "High Priority", value: stats?.high_priority_queue ?? "â€”", color: C.red },
-            { label: "Normal Queue", value: stats?.normal_queue ?? "â€”", color: C.amber },
-            { label: "Processing", value: stats?.processing ?? "â€”", color: C.blue },
-            { label: "Dead Letter", value: stats?.dead_letter_queue ?? "â€”", color: C.muted },
-            { label: "Total Processed", value: stats?.total_tasks_processed ?? "â€”", color: C.green },
-            { label: "Avg Time (s)", value: stats?.avg_processing_time_seconds ?? "â€”", color: C.purple },
+            { label: "High Priority", value: stats?.high_priority_queue ?? "—", color: C.red },
+            { label: "Normal Queue", value: stats?.normal_queue ?? "—", color: C.amber },
+            { label: "Processing", value: stats?.processing ?? "—", color: C.blue },
+            { label: "Dead Letter", value: stats?.dead_letter_queue ?? "—", color: C.muted },
+            { label: "Total Processed", value: stats?.total_tasks_processed ?? "—", color: C.green },
+            { label: "Avg Time (s)", value: stats?.avg_processing_time_seconds ?? "—", color: C.purple },
             { label: "Success Rate", value: `${successRate}%`, color: C.green },
           ].map(({ label: l, value, color }) => (
             <div key={l} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "16px 20px" }}>
@@ -132,9 +132,9 @@ export default function App() {
 
         {/* Throughput Chart */}
         <div style={card}>
-          <p style={label}>Live Throughput â€” tasks per 10s interval</p>
+          <p style={label}>Live Throughput — tasks per 10s interval</p>
           {history.length === 0
-            ? <p style={{ fontSize: "13px", color: C.muted }}>Collecting data â€” chart appears after 10 secondsâ€¦</p>
+            ? <p style={{ fontSize: "13px", color: C.muted }}>Collecting data — chart appears after 10 seconds…</p>
             : <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={history} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
@@ -196,10 +196,10 @@ export default function App() {
                 </div>
                 {analytics.recent_tasks.map((t, i) => (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px 80px 80px", gap: "8px", fontSize: "12px", padding: "8px 4px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                    <span style={{ color: C.blue, fontFamily: "monospace" }}>{t.id?.slice(0, 8)}â€¦</span>
+                    <span style={{ color: C.blue, fontFamily: "monospace" }}>{t.id?.slice(0, 8)}…</span>
                     <span style={{ color: C.text }}>{t.type}</span>
                     <span style={{ display: "inline-block", fontSize: "11px", padding: "2px 8px", borderRadius: "12px", background: statusBg(t.status), color: statusColor(t.status), border: `1px solid ${statusColor(t.status)}44` }}>{t.status}</span>
-                    <span style={{ color: C.muted }}>{t.duration ? `${t.duration}s` : "â€”"}</span>
+                    <span style={{ color: C.muted }}>{t.duration ? `${t.duration}s` : "—"}</span>
                     <span style={{ color: C.muted }}>{t.time}</span>
                   </div>
                 ))}
@@ -219,20 +219,20 @@ export default function App() {
               <option value={2}>High priority</option>
             </select>
             <button style={{ width: "100%", padding: "9px", background: C.greenFade, color: "#fff", border: "1px solid #2ea043", borderRadius: "6px", fontSize: "13px", fontWeight: 500, cursor: "pointer", opacity: submitting ? 0.6 : 1 }} onClick={submitTask} disabled={submitting}>
-              {submitting ? "Submittingâ€¦" : "Submit task"}
+              {submitting ? "Submitting…" : "Submit task"}
             </button>
           </div>
 
           <div style={card}>
             <p style={label}>Track Task</p>
-            <input style={inp} value={trackId} onChange={e => setTrackId(e.target.value)} placeholder="Paste task IDâ€¦" />
+            <input style={inp} value={trackId} onChange={e => setTrackId(e.target.value)} placeholder="Paste task ID…" />
             <button style={{ width: "100%", padding: "9px", background: "transparent", color: C.blue, border: `1px solid ${C.border}`, borderRadius: "6px", fontSize: "13px", fontWeight: 500, cursor: "pointer" }} onClick={trackTask}>Check status</button>
             {trackedTask && (
               <div style={{ marginTop: "12px", padding: "12px", background: C.bg, borderRadius: "6px", border: `1px solid ${C.border}` }}>
                 <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "12px", background: statusBg(trackedTask.result?.status || "unknown"), color: statusColor(trackedTask.result?.status || "unknown"), border: `1px solid ${statusColor(trackedTask.result?.status || "unknown")}44` }}>
                   {(trackedTask.result?.status || trackedTask.status || "UNKNOWN").toUpperCase()}
                 </span>
-                {trackedTask.result?.duration_seconds && <p style={{ fontSize: "12px", color: C.muted, margin: "6px 0 0" }}>Duration: {trackedTask.result.duration_seconds}s Â· Worker: {trackedTask.result.worker}</p>}
+                {trackedTask.result?.duration_seconds && <p style={{ fontSize: "12px", color: C.muted, margin: "6px 0 0" }}>Duration: {trackedTask.result.duration_seconds}s · Worker: {trackedTask.result.worker}</p>}
               </div>
             )}
           </div>
@@ -248,19 +248,19 @@ export default function App() {
             </div>
           </div>
           {deadTasks.length === 0
-            ? <p style={{ fontSize: "13px", color: C.muted, margin: 0 }}>No failed tasks â€” all clear.</p>
+            ? <p style={{ fontSize: "13px", color: C.muted, margin: 0 }}>No failed tasks — all clear.</p>
             : deadTasks.slice(0, 10).map((task, i) => (
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: "8px", fontSize: "12px", padding: "10px 0", borderTop: `1px solid ${C.border}` }}>
-                  <span style={{ color: C.red, fontFamily: "monospace" }}>{task.id?.slice(0, 8)}â€¦</span>
+                  <span style={{ color: C.red, fontFamily: "monospace" }}>{task.id?.slice(0, 8)}…</span>
                   <span>{task.type}</span>
-                  <span style={{ color: C.muted }}>{task.retries}Ã—</span>
+                  <span style={{ color: C.muted }}>{task.retries}×</span>
                 </div>
               ))
           }
         </div>
 
         <p style={{ textAlign: "center", fontSize: "12px", color: C.muted, marginTop: "16px" }}>
-          Redis Â· FastAPI Â· Python multiprocessing Â· AWS EC2 Â· GitHub Actions CI/CD
+          Redis · FastAPI · Python multiprocessing · AWS EC2 · GitHub Actions CI/CD
         </p>
       </main>
     </div>
