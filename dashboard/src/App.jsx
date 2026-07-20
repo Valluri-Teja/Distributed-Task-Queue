@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+ï»¿import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, Cell, PieChart, Pie, Legend } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, Cell } from "recharts";
 
 const API = "https://task-queue.hopto.org";
 const TASK_TYPES = ["send_email", "resize_image", "generate_report", "data_sync", "failing_task"];
@@ -14,9 +14,9 @@ const C = {
 };
 
 const COLORS = [C.blue, C.green, C.amber, C.purple, C.red];
-
 const card = { background: C.surface, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "16px 20px", marginBottom: "16px" };
-const label = { fontSize: "11px", color: C.muted, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 12px" };
+const lbl = { fontSize: "11px", color: C.muted, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 12px" };
+
 const CustomTooltip = ({ active, payload, label: l }) => active && payload?.length ? (
   <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: "6px", padding: "8px 12px", fontSize: "12px" }}>
     <p style={{ color: C.muted, margin: "0 0 4px" }}>{l}</p>
@@ -66,7 +66,7 @@ export default function App() {
       const res = await axios.post(`${API}/tasks`, { task_type: taskType, payload: { to: "demo@example.com", filename: "photo.jpg" }, priority: parseInt(priority) });
       const id = res.data.task_id?.id || res.data.task_id;
       setTrackId(id);
-      showToast(`Task queued — ID: ${id?.slice(0, 8)}…`, "success");
+      showToast(`Task queued - ID: ${id?.slice(0, 8)}`, "success");
       fetchAll();
     } catch (e) { showToast(e?.response?.data?.detail?.[0]?.msg || "Failed to submit task", "error"); }
     finally { setSubmitting(false); }
@@ -91,50 +91,47 @@ export default function App() {
 
   return (
     <div style={{ fontFamily: "'Inter', -apple-system, sans-serif", background: C.bg, minHeight: "100vh", color: C.text }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap'); *{box-sizing:border-box} @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} ::-webkit-scrollbar{width:6px} ::-webkit-scrollbar-track{background:${C.bg}} ::-webkit-scrollbar-thumb{background:${C.border};border-radius:3px}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap'); *{box-sizing:border-box} @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}} ::-webkit-scrollbar{width:6px} ::-webkit-scrollbar-track{background:#0d1117} ::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}`}</style>
 
-      {/* Navbar */}
-      <nav style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: "56px", position: "sticky", top: 0, zIndex: 10 }}>
+      <nav style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: "56px", position: "sticky", top: 0, zIndex: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={C.blue} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           <span style={{ fontSize: "15px", fontWeight: 600 }}>Distributed Task Queue</span>
           <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "12px", background: `${C.green}22`, color: C.green, border: `1px solid ${C.green}44` }}>Live</span>
         </div>
-        <a href={`${API}/docs`} target="_blank" rel="noreferrer" style={{ fontSize: "12px", color: C.muted, textDecoration: "none" }}>API Docs ?</a>
+        <a href={`${API}/docs`} target="_blank" rel="noreferrer" style={{ fontSize: "12px", color: C.muted, textDecoration: "none" }}>API Docs</a>
       </nav>
 
       <main style={{ padding: "24px 32px" }}>
         <h1 style={{ fontSize: "22px", fontWeight: 600, margin: "0 0 4px", letterSpacing: "-0.02em" }}>Queue Monitor</h1>
-        <p style={{ fontSize: "13px", color: C.muted, margin: "0 0 28px" }}>
+        <p style={{ fontSize: "13px", color: C.muted, margin: "0 0 24px" }}>
           <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: C.green, display: "inline-block", marginRight: "6px", animation: "pulse 2s infinite" }}/>
-          {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Connecting…"} · auto-refreshes every 5s
+          {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : "Connecting"} - auto-refreshes every 5s
         </p>
 
         {toast && <div style={{ padding: "10px 14px", borderRadius: "6px", fontSize: "13px", marginBottom: "16px", background: toast.type === "success" ? `${C.green}11` : `${C.red}11`, border: `1px solid ${toast.type === "success" ? C.green+"44" : C.red+"44"}`, color: toast.type === "success" ? C.green : C.red }}>{toast.msg}</div>}
 
-        {/* Stat Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px", marginBottom: "24px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "12px", marginBottom: "24px" }}>
           {[
-            { label: "High Priority", value: stats?.high_priority_queue ?? "—", color: C.red },
-            { label: "Normal Queue", value: stats?.normal_queue ?? "—", color: C.amber },
-            { label: "Processing", value: stats?.processing ?? "—", color: C.blue },
-            { label: "Dead Letter", value: stats?.dead_letter_queue ?? "—", color: C.muted },
-            { label: "Total Processed", value: stats?.total_tasks_processed ?? "—", color: C.green },
-            { label: "Avg Time (s)", value: stats?.avg_processing_time_seconds ?? "—", color: C.purple },
+            { label: "High Priority", value: stats?.high_priority_queue ?? "-", color: C.red },
+            { label: "Normal Queue", value: stats?.normal_queue ?? "-", color: C.amber },
+            { label: "Processing", value: stats?.processing ?? "-", color: C.blue },
+            { label: "Dead Letter", value: stats?.dead_letter_queue ?? "-", color: C.muted },
+            { label: "Total Processed", value: stats?.total_tasks_processed ?? "-", color: C.green },
+            { label: "Avg Time (s)", value: stats?.avg_processing_time_seconds ?? "-", color: C.purple },
             { label: "Success Rate", value: `${successRate}%`, color: C.green },
-          ].map(({ label: l, value, color }) => (
-            <div key={l} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "16px 20px" }}>
-              <p style={{ fontSize: "11px", color: C.muted, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>{l}</p>
-              <p style={{ fontSize: "28px", fontWeight: 600, margin: 0, color }}>{value}</p>
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: "8px", padding: "16px" }}>
+              <p style={{ fontSize: "10px", color: C.muted, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>{label}</p>
+              <p style={{ fontSize: "24px", fontWeight: 600, margin: 0, color }}>{value}</p>
             </div>
           ))}
         </div>
 
-        {/* Throughput Chart */}
         <div style={card}>
-          <p style={label}>Live Throughput — tasks per 10s interval</p>
+          <p style={lbl}>Live Throughput - tasks per 10s interval</p>
           {history.length === 0
-            ? <p style={{ fontSize: "13px", color: C.muted }}>Collecting data — chart appears after 10 seconds…</p>
+            ? <p style={{ fontSize: "13px", color: C.muted }}>Collecting data - chart appears after 10 seconds</p>
             : <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={history} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
@@ -148,10 +145,9 @@ export default function App() {
           }
         </div>
 
-        {/* Task Type + Worker Charts */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
           <div style={card}>
-            <p style={label}>Task Type Breakdown</p>
+            <p style={lbl}>Task Type Breakdown</p>
             {typeChartData.length === 0
               ? <p style={{ fontSize: "13px", color: C.muted }}>No tasks processed yet</p>
               : <ResponsiveContainer width="100%" height={180}>
@@ -169,7 +165,7 @@ export default function App() {
           </div>
 
           <div style={card}>
-            <p style={label}>Worker Utilization</p>
+            <p style={lbl}>Worker Utilization</p>
             {workerChartData.length === 0
               ? <p style={{ fontSize: "13px", color: C.muted }}>No tasks processed yet</p>
               : <ResponsiveContainer width="100%" height={180}>
@@ -185,9 +181,8 @@ export default function App() {
           </div>
         </div>
 
-        {/* Recent Task Feed */}
         <div style={card}>
-          <p style={label}>Recent Task Activity</p>
+          <p style={lbl}>Recent Task Activity</p>
           {!analytics?.recent_tasks?.length
             ? <p style={{ fontSize: "13px", color: C.muted }}>No recent tasks</p>
             : <div>
@@ -196,10 +191,10 @@ export default function App() {
                 </div>
                 {analytics.recent_tasks.map((t, i) => (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 100px 80px 80px", gap: "8px", fontSize: "12px", padding: "8px 4px", borderTop: `1px solid ${C.border}`, alignItems: "center" }}>
-                    <span style={{ color: C.blue, fontFamily: "monospace" }}>{t.id?.slice(0, 8)}…</span>
+                    <span style={{ color: C.blue, fontFamily: "monospace" }}>{t.id?.slice(0, 8)}</span>
                     <span style={{ color: C.text }}>{t.type}</span>
                     <span style={{ display: "inline-block", fontSize: "11px", padding: "2px 8px", borderRadius: "12px", background: statusBg(t.status), color: statusColor(t.status), border: `1px solid ${statusColor(t.status)}44` }}>{t.status}</span>
-                    <span style={{ color: C.muted }}>{t.duration ? `${t.duration}s` : "—"}</span>
+                    <span style={{ color: C.muted }}>{t.duration ? `${t.duration}s` : "-"}</span>
                     <span style={{ color: C.muted }}>{t.time}</span>
                   </div>
                 ))}
@@ -207,10 +202,9 @@ export default function App() {
           }
         </div>
 
-        {/* Submit + Track */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
           <div style={card}>
-            <p style={label}>Submit Task</p>
+            <p style={lbl}>Submit Task</p>
             <select style={inp} value={taskType} onChange={e => setTaskType(e.target.value)}>
               {TASK_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
@@ -219,48 +213,47 @@ export default function App() {
               <option value={2}>High priority</option>
             </select>
             <button style={{ width: "100%", padding: "9px", background: C.greenFade, color: "#fff", border: "1px solid #2ea043", borderRadius: "6px", fontSize: "13px", fontWeight: 500, cursor: "pointer", opacity: submitting ? 0.6 : 1 }} onClick={submitTask} disabled={submitting}>
-              {submitting ? "Submitting…" : "Submit task"}
+              {submitting ? "Submitting..." : "Submit task"}
             </button>
           </div>
 
           <div style={card}>
-            <p style={label}>Track Task</p>
-            <input style={inp} value={trackId} onChange={e => setTrackId(e.target.value)} placeholder="Paste task ID…" />
+            <p style={lbl}>Track Task</p>
+            <input style={inp} value={trackId} onChange={e => setTrackId(e.target.value)} placeholder="Paste task ID..." />
             <button style={{ width: "100%", padding: "9px", background: "transparent", color: C.blue, border: `1px solid ${C.border}`, borderRadius: "6px", fontSize: "13px", fontWeight: 500, cursor: "pointer" }} onClick={trackTask}>Check status</button>
             {trackedTask && (
               <div style={{ marginTop: "12px", padding: "12px", background: C.bg, borderRadius: "6px", border: `1px solid ${C.border}` }}>
                 <span style={{ fontSize: "11px", padding: "2px 8px", borderRadius: "12px", background: statusBg(trackedTask.result?.status || "unknown"), color: statusColor(trackedTask.result?.status || "unknown"), border: `1px solid ${statusColor(trackedTask.result?.status || "unknown")}44` }}>
                   {(trackedTask.result?.status || trackedTask.status || "UNKNOWN").toUpperCase()}
                 </span>
-                {trackedTask.result?.duration_seconds && <p style={{ fontSize: "12px", color: C.muted, margin: "6px 0 0" }}>Duration: {trackedTask.result.duration_seconds}s · Worker: {trackedTask.result.worker}</p>}
+                {trackedTask.result?.duration_seconds && <p style={{ fontSize: "12px", color: C.muted, margin: "6px 0 0" }}>Duration: {trackedTask.result.duration_seconds}s - Worker: {trackedTask.result.worker}</p>}
               </div>
             )}
           </div>
         </div>
 
-        {/* Dead Letter Queue */}
         <div style={card}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-            <p style={{ ...label, margin: 0 }}>Dead Letter Queue ({deadTasks.length})</p>
+            <p style={{ ...lbl, margin: 0 }}>Dead Letter Queue ({deadTasks.length})</p>
             <div style={{ display: "flex", gap: "8px" }}>
               {deadTasks.length > 0 && <button style={{ padding: "5px 12px", background: "transparent", color: C.blue, border: `1px solid ${C.border}`, borderRadius: "6px", fontSize: "11px", cursor: "pointer" }} onClick={replayDead}>Replay all</button>}
               {deadTasks.length > 0 && <button style={{ padding: "5px 12px", background: "transparent", color: C.red, border: `1px solid ${C.border}`, borderRadius: "6px", fontSize: "11px", cursor: "pointer" }} onClick={clearDead}>Clear all</button>}
             </div>
           </div>
           {deadTasks.length === 0
-            ? <p style={{ fontSize: "13px", color: C.muted, margin: 0 }}>No failed tasks — all clear.</p>
+            ? <p style={{ fontSize: "13px", color: C.muted, margin: 0 }}>No failed tasks - all clear.</p>
             : deadTasks.slice(0, 10).map((task, i) => (
                 <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: "8px", fontSize: "12px", padding: "10px 0", borderTop: `1px solid ${C.border}` }}>
-                  <span style={{ color: C.red, fontFamily: "monospace" }}>{task.id?.slice(0, 8)}…</span>
+                  <span style={{ color: C.red, fontFamily: "monospace" }}>{task.id?.slice(0, 8)}</span>
                   <span>{task.type}</span>
-                  <span style={{ color: C.muted }}>{task.retries}×</span>
+                  <span style={{ color: C.muted }}>{task.retries}x</span>
                 </div>
               ))
           }
         </div>
 
         <p style={{ textAlign: "center", fontSize: "12px", color: C.muted, marginTop: "16px" }}>
-          Redis · FastAPI · Python multiprocessing · AWS EC2 · GitHub Actions CI/CD
+          Redis - FastAPI - Python multiprocessing - AWS EC2 - GitHub Actions CI/CD
         </p>
       </main>
     </div>
