@@ -1,123 +1,136 @@
-# Distributed Task Queue
-A production-grade distributed task queue system built with Redis, FastAPI, and Python multiprocessing — similar to how Celery works under the hood. Built as a portfolio project to demonstrate distributed systems concepts used at companies like Amazon, Google, and Netflix.
+﻿# Distributed Task Queue
 
-**Live API:** Deployed on AWS EC2 (ap-south-1)  
-**API Docs:** Available at `/docs` on the live server  
+A production-grade distributed task queue built with Redis, FastAPI, and Python multiprocessing. Similar to how Celery or Amazon SQS work internally — built from scratch to understand the fundamentals.
+
+**Live Dashboard:** https://distributed-task-queue.netlify.app  
 **GitHub:** https://github.com/Valluri-Teja/Distributed-Task-Queue
-
-## Architecture
-```
-Clients → FastAPI (port 8000) → Redis Priority Queues → Worker Pool (3 workers)
-                                        ↓
-                               Dead Letter Queue (failed tasks)
-                                        ↓
-                              React Dashboard (live monitoring)
-```
-
-- **High priority queue** is always drained before normal queue
-- **3 parallel workers** run as independent Python processes via `multiprocessing`
-- **Auto-retry** up to 3 times before moving to dead letter queue
-- **Result storage** — task results stored in Redis with 24-hour TTL
 
 ---
 
+## What it does
+
+Clients submit tasks (send email, resize image, generate report) via a REST API. Tasks are stored in Redis priority queues and consumed by a pool of 3 parallel workers. Failed tasks are automatically retried with exponential backoff, and tasks that exhaust retries go to a dead letter queue for inspection and replay.
+
+---
+
+## Architecture
+---
+
 ## Features
-- Redis-backed priority queue (high + normal queues)
-- 3-worker multiprocessing pool with independent crash recovery
-- Auto-retry with `MAX_RETRIES=3` and dead letter queue
-- FastAPI REST API with input validation (Pydantic + Literal types)
-- Rate limiting — 100 requests/minute per IP (slowapi)
-- Structured logging with timestamps and log levels
-- React monitoring dashboard with live stats (auto-refreshes every 3s)
-- Docker + Docker Compose orchestration
-- Load tested with Locust — **52 req/sec, 7500+ tasks, 50 concurrent users**
-- CI/CD via GitHub Actions — auto-deploys to EC2 on every push to main
+
+- **Priority scheduling** — two Redis lists (high/normal), workers always drain high first via BRPOPLPUSH
+- **At-least-once delivery** — BRPOPLPUSH moves tasks to processing_queue atomically; watchdog recovers crashed worker tasks
+- **Auto-retry with exponential backoff + jitter** — prevents thundering herd on retries
+- **Dead letter queue** — failed tasks never silently lost; replay endpoint to requeue after bug fixes
+- **Input validation** — Pydantic Literal types reject unknown task types; 10KB payload limit
+- **Rate limiting** — 100 requests/min per IP via slowapi
+- **Structured logging** — timestamps, log levels, worker context on every log line
+- **systemd services** — API and worker auto-restart on EC2 reboot
+- **Live monitoring dashboard** — throughput chart, task type breakdown, worker utilization, recent task feed
+- **Load tested** — 52 req/sec, 7500+ tasks, 50 concurrent users via Locust
+- **5 pytest unit tests** — queue priority, backoff math, DLQ routing
 
 ---
 
 ## Tech Stack
+
 | Layer | Technology |
 |-------|-----------|
 | API | FastAPI, Uvicorn |
-| Queue | Redis 7 |
+| Queue | Redis 7 (BRPOPLPUSH pattern) |
 | Workers | Python multiprocessing |
 | Validation | Pydantic v2, slowapi |
-| Frontend | React + Vite |
-| Containerization | Docker, Docker Compose |
+| Frontend | React + Vite + Recharts |
+| Reverse proxy | Nginx + SSL |
+| Process manager | systemd |
 | CI/CD | GitHub Actions |
 | Cloud | AWS EC2 (t3.micro, Mumbai) |
+| Frontend hosting | Netlify |
 
 ---
 
 ## API Endpoints
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/tasks` | Submit a new task |
-| GET | `/tasks/{task_id}` | Get task status + result |
+| POST | `/tasks` | Submit a task |
+| GET | `/tasks/{id}` | Get task result |
 | GET | `/stats` | Live queue stats |
+| GET | `/stats/history` | Last 10 mins of throughput data |
+| GET | `/analytics` | Task type counts, worker utilization, recent feed |
 | GET | `/dead-letter` | View failed tasks |
 | DELETE | `/dead-letter` | Clear dead letter queue |
-| GET | `/docs` | Interactive API docs (Swagger UI) |
+| POST | `/dead-letter/replay` | Requeue all failed tasks |
 
+---
 
-### Prerequisites
-- Python 3.11+
-- Docker Desktop
-- Node.js 18+
+## Interview Q&A
+
+**Why multiprocessing over asyncio?**  
+Our tasks are CPU-bound simulations (image resize, report generation) that hold the Python GIL. asyncio only helps I/O-bound tasks and does not give true parallelism for CPU work due to the GIL. multiprocessing spawns separate OS processes, each with their own GIL, giving real CPU parallelism. If tasks were pure I/O (HTTP calls, DB queries), asyncio would be the right choice.
+
+**What happens if a worker dies mid-task?**  
+Without protection, the task would be lost. We use the BRPOPLPUSH pattern: when a worker picks up a task, Redis atomically moves it from the queue to a processing_queue list. A watchdog background task runs every 30 seconds and scans processing_queue for tasks stuck longer than 60 seconds. Those tasks are requeued automatically. This guarantees at-least-once delivery even under worker failure.
+
+**Why 52 req/sec specifically?**  
+The bottleneck is Redis round-trip latency, not worker CPU. Each task submission involves one LPUSH to Redis and one response. At 52 req/sec we are saturating the single-threaded Redis event loop on a t3.micro instance. Adding more workers would not increase throughput past this point without upgrading Redis or batching inserts. The workers themselves were idle during the load test — the API layer was the ceiling.
+
+**Why exponential backoff with jitter?**  
+Immediate retries into a failing dependency hammer the service and delay recovery. Exponential backoff gives the dependency time to recover. Jitter prevents the thundering herd problem — all 3 workers retrying at the exact same millisecond and overwhelming the recovering service together.
+
+---
+
+## Local Setup
+
+```bash
+# 1. Start Redis
+docker run -d --name redis-task-queue -p 6379:6379 redis
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Start API
+python -m uvicorn api:app --reload --port 8000
+
+# 4. Start workers (separate terminal)
+python worker.py
+
+# 5. Start dashboard (separate terminal)
+cd dashboard && npm install && npm run dev
+```
+
+Or run everything with Docker Compose:
+```bash
+docker-compose up --build
+```
+
+---
 
 ## Environment Variables
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REDIS_HOST` | `localhost` | Redis host (set to `redis` in Docker Compose) |
+| `REDIS_HOST` | `localhost` | Redis hostname |
 | `REDIS_PORT` | `6379` | Redis port |
-| `FAILURE_RATE` | `0.0` | Simulated failure rate for testing retry logic (0.0–1.0) |
+| `FAILURE_RATE` | `0.0` | Simulated failure rate for testing (0.0-1.0) |
 
 ---
 
 ## Load Test Results
-Tested with Locust against the live EC2 deployment:
-- **Throughput:** 52 requests/second
+
+Tested with Locust against live EC2 deployment:
+
+- **Throughput:** 52 req/sec sustained
 - **Concurrent users:** 50
-- **Total tasks processed:** 7,500+
-- **Failure rate:** 0% (API layer)
+- **Tasks processed:** 7,500+
+- **Bottleneck:** Redis round-trip latency on t3.micro (not worker CPU)
+
+---
+
+## Resume Bullet
+
+> Designed at-least-once task delivery with BRPOPLPUSH acknowledgment, exponential backoff retry, watchdog crash recovery, and dead-letter routing. Validated via Locust load test sustaining 52 req/sec across 7,500+ tasks. Deployed on AWS EC2 with Nginx, SSL, systemd, GitHub Actions CI/CD, and a React monitoring dashboard with live throughput charts.
 
 ---
 
 ## Project Structure
-```
-distributed-task-queue/
-├── task_queue.py        # Core Redis queue — push/pop, priority, DLQ, results
-├── worker.py            # Worker pool — 3 parallel workers, retry logic
-├── api.py               # FastAPI REST API — all endpoints, validation, rate limiting
-├── Dockerfile           # Docker image for the API
-├── docker-compose.yml   # Orchestrates API + Redis + Worker together
-├── requirements.txt     # Python dependencies
-├── .github/
-│   └── workflows/
-│       └── deploy.yml   # GitHub Actions CI/CD pipeline
-└── dashboard/
-    └── src/
-        └── App.jsx      # React monitoring dashboard
-```
-
----
-
-##CI/CD Pipeline
-Every push to `main` automatically:
-1. SSHes into EC2
-2. Pulls latest code (`git reset --hard origin/main`)
-3. Installs any new dependencies
-4. Kills old API and worker processes (via PID files)
-5. Starts new API and worker processes
-6. Logs to `api.log` and `worker.log`
-
-Pipeline runs in ~15 seconds.
-
----
-
-##Key Concepts Demonstrated: 
-Priority queues — two Redis lists (`high_priority_queue`, `normal_queue`), workers always drain high first via `BRPOP`
-Dead letter queue — tasks that fail 3 times are moved to `dead_letter_queue` instead of being silently lost
-Worker isolation — each worker is an independent OS process; one crash doesn't affect others
-Idempotency — tasks track retry count in their payload; requeued tasks carry their history
-Observability — structured logging with timestamps, `/stats` endpoint, live dashboard
