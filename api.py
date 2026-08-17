@@ -177,7 +177,7 @@ def get_all_tasks():
         if status == "processing":
             entry["meta"] = f"retries: {data.get('retries',0)}"
             processing.append(entry)
-        elif status == "done":
+        elif status == "completed":
             success.append(entry)
         elif status == "failed":
             entry["meta"] = data.get("error","failed")
