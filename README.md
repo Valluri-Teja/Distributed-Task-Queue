@@ -7,6 +7,10 @@ A production-grade distributed task queue built with Redis, FastAPI, and Python 
 
 ---
 
+## Live Demo
+- Dashboard: https://queueviz.netlify.app
+- API: http://3.108.42.154:8000/docs
+
 ## What it does
 
 Clients submit tasks (send email, resize image, generate report) via a REST API. Tasks are stored in Redis priority queues and consumed by a pool of 3 parallel workers. Failed tasks are automatically retried with exponential backoff, and tasks that exhaust retries go to a dead letter queue for inspection and replay.
